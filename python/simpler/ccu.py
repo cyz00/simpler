@@ -19,7 +19,15 @@ from pathlib import Path
 def runtime_build_identity() -> tuple[bytes, bytes]:
     from simpler_setup.pto_isa import ensure_pto_isa_root  # noqa: PLC0415 -- CCU-only toolchain discovery
 
-    sdk_header = Path(os.environ["ASCEND_HOME_PATH"]) / "aarch64-linux/include/hcomm/ccu/ccu_res.h"
+    sdk = Path(os.environ["ASCEND_HOME_PATH"])
+    sdk_header = None
+    for arch in ("aarch64-linux", "x86_64-linux"):
+        candidate = sdk / arch / "include/hcomm/ccu/ccu_res.h"
+        if candidate.is_file():
+            sdk_header = candidate
+            break
+    if sdk_header is None:
+        raise FileNotFoundError(f"ccu_res.h not found under {sdk}/aarch64-linux or {sdk}/x86_64-linux")
     isa_header = Path(ensure_pto_isa_root()) / "include/pto/pto-inst.hpp"
     return hashlib.sha256(sdk_header.read_bytes()).digest(), hashlib.sha256(isa_header.read_bytes()).digest()
 

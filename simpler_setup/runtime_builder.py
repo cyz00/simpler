@@ -329,8 +329,13 @@ class RuntimeBuilder:
         """
         if not self._requires_pto_isa_metadata_validation() and self.platform != "a5sim":
             return ""
-        from .pto_isa import read_pto_isa_pin  # noqa: PLC0415
+        from .pto_isa import _explicit_pto_isa_root, get_pto_isa_head, read_pto_isa_pin  # noqa: PLC0415
 
+        explicit = _explicit_pto_isa_root()
+        if explicit is not None:
+            head = get_pto_isa_head(explicit)
+            if head:
+                return head
         return read_pto_isa_pin()
 
     def _build_cache_stamp(self, pto_isa_commit: Optional[str] = None) -> str:

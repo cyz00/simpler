@@ -41,6 +41,7 @@ Lock file under build/ serializes concurrent clones from parallel processes.
 import fcntl
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -133,7 +134,9 @@ def write_pto_isa_build_metadata(lib_dir: Path, pto_isa_root: str, runtime_keys:
             f"{pto_isa_root} is not a git checkout or git HEAD is unavailable. "
             "Building PTO-ISA-embedding onboard runtimes requires the managed build/pto-isa checkout."
         )
-    if actual_commit != required_commit:
+    explicit = _explicit_pto_isa_root()
+    using_explicit = explicit is not None and Path(pto_isa_root).resolve() == Path(explicit).resolve()
+    if actual_commit != required_commit and not using_explicit:
         raise RuntimeError(
             "PTO-ISA checkout mismatch while recording runtime build metadata: "
             f"pto_isa.pin requires {required_commit}, but {pto_isa_root} is at {actual_commit}."
@@ -189,6 +192,7 @@ def validate_runtime_pto_isa_current_pin(lib_dir: Path, runtime_key: Optional[st
     ``host_runtime.so``.
     """
     required_commit = read_pto_isa_pin()
+    explicit = _explicit_pto_isa_root()
     metadata_path = pto_isa_build_metadata_path(lib_dir)
     metadata = read_pto_isa_build_metadata(lib_dir)
     if metadata is None:
@@ -218,6 +222,26 @@ def validate_runtime_pto_isa_current_pin(lib_dir: Path, runtime_key: Optional[st
         build_commit = _metadata_commit(artifact)
     else:
         build_commit = _metadata_commit(metadata)
+    if explicit is not None:
+        actual = get_pto_isa_head(explicit)
+        recorded = ""
+        recorded_path = ""
+        if metadata.get("schema_version") == 3 and runtime_key is not None:
+            artifact = metadata.get("runtime_artifacts", {}).get(runtime_key, {})
+            if isinstance(artifact, dict):
+                recorded = str(artifact.get("actual_checkout_commit", "")).strip().lower()
+                recorded_path = str(artifact.get("checkout_path", ""))
+        else:
+            recorded = str(metadata.get("actual_checkout_commit", "")).strip().lower()
+            recorded_path = str(metadata.get("checkout_path", ""))
+        if actual and recorded == actual and Path(recorded_path).resolve() == Path(explicit).resolve():
+            return
+        raise RuntimeError(
+            "PTO-ISA runtime binaries were not built from SIMPLER_CCU_PTO_ISA "
+            f"{explicit} at {actual or '<unknown>'}.\n"
+            f"Build metadata: {metadata_path}\n"
+            "Rebuild this runtime with SIMPLER_CCU_PTO_ISA pointing at that tree."
+        )
     if not build_commit or build_commit == required_commit:
         return
 
@@ -465,8 +489,31 @@ def _clone(target: Path, commit: str, verbose: bool) -> bool:
         return False
 
 
+def _explicit_pto_isa_root() -> Optional[str]:
+    """Return SIMPLER_CCU_PTO_ISA when it points at the modified collective tree.
+
+    The managed pin checkout does not contain the host-written AllToAll offsets.
+    Setting this variable selects that working tree and skips the pin clone.
+    """
+    override = os.environ.get("SIMPLER_CCU_PTO_ISA", "").strip()
+    if not override:
+        return None
+    root = Path(override).resolve()
+    header = root / "include/pto/comm/async/ccu/ccu_collective_ops.hpp"
+    if not header.is_file():
+        raise OSError(f"SIMPLER_CCU_PTO_ISA={root} has no {header.name} under include/pto/comm/async/ccu")
+    if "host-written block offset" not in header.read_text(encoding="utf-8"):
+        raise OSError(f"SIMPLER_CCU_PTO_ISA={root} does not contain the host-written AllToAll block offsets")
+    return str(root)
+
+
 def ensure_pto_isa_root(verbose: bool = False) -> str:
     """Resolve the pinned managed PTO-ISA checkout. Return absolute path."""
+    explicit = _explicit_pto_isa_root()
+    if explicit is not None:
+        if verbose:
+            logger.info(f"pto-isa override: {explicit}")
+        return explicit
     required_commit = read_pto_isa_pin()
     clone_path = get_pto_isa_clone_path()
     lock_path = clone_path.parent / ".pto-isa.lock"

@@ -31,7 +31,7 @@ _RUNTIME = "tensormap_and_ringbuffer"
 def _build_callable(tmp_path, variant=0, source_root=_ROOT, runtime=_RUNTIME):
     tmp_path.mkdir(parents=True, exist_ok=True)
     sdk = Path(os.environ["ASCEND_HOME_PATH"])
-    arch = sdk / "aarch64-linux"
+    arch = sdk / ("aarch64-linux" if (sdk / "aarch64-linux").is_dir() else "x86_64-linux")
     common = Path(__file__).resolve().parents[5] / "src/common"
     sdk_identity = hashlib.sha256((arch / "include/hcomm/ccu/ccu_res.h").read_bytes()).digest()
     isa_root = Path(ensure_pto_isa_root())

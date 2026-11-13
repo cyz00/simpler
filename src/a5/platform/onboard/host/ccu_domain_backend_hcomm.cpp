@@ -442,9 +442,12 @@ std::vector<HcommPreparedMission> prepare_hcomm_ccu_callable(
     try {
         HcclCommConfig config{};
         HcclCommConfigInit(&config);
-        // HcclCommConfig uses HcclAccelerator values, not HcclOpExpansionMode enum values.
-        constexpr uint32_t ccu_ms_config_mode = 5;
-        config.hcclOpExpansionMode = ccu_ms_config_mode;
+        // HcclCommConfig stores HcclAccelerator, not HcclOpExpansionMode.
+        // DEFAULT=0 HOSTCPU_TS=1 AICPU_TS=2 AIV=3 AIV_ONLY=4 CCU_MS=5 CCU_SCHED=6.
+        // This host is MAINBOARD_PCIE_STD: CCU_MS is rejected with HCCL_E_NOT_SUPPORT.
+        // The base communicator is already CCU_SCHED via HCCL_OP_EXPANSION_MODE.
+        constexpr uint32_t ccu_sched_config_mode = 6;
+        config.hcclOpExpansionMode = ccu_sched_config_mode;
         auto mutable_rank_ids = rank_ids;
         check(
             HcclCreateSubCommConfig(
